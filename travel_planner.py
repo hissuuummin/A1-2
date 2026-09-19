@@ -85,9 +85,9 @@ def main():
     )
     # 보너스 기능: 복수 지역 추천 옵션
     parser.add_argument(
-        "--multi",
+        "-m", "--multi",
         action="store_true",
-        help="단일 도시가 아닌 복수 지역(2~3곳)을 추천받습니다."
+        help="[보너스 과제] 단일 도시가 아닌 복수 지역(2~3곳)을 추천받고 지역별로 맛집을 정리합니다."
     )
 
     args = parser.parse_args()
@@ -100,19 +100,25 @@ def main():
     raw_json_path = results_dir / f"{date_str}_travel_plan.json"
     report_md_path = results_dir / f"{date_str}_travel_plan.md"
 
-    # [보너스 과제] 캐싱 확인
-    if not args.force and raw_json_path.exists() and report_md_path.exists():
-        print(f"\n[캐시 확인] {date_str} 날짜의 추천 결과가 이미 존재합니다.")
-        print(f"  - 원본 데이터: {raw_json_path}")
-        print(f"  - 최종 리포트: {report_md_path}")
-        print("  (새로 생성하려면 --force 옵션을 추가하여 실행하세요.)\n")
+    # [보너스 과제 2] 결과 캐싱 (Cache Hit) 처리
+    if not args.force and raw_json_path.exists():
+        print(f"\n==================================================")
+        print(f"  [보너스 과제: 결과 캐싱(Cache Hit) 적용] 날짜: {date_str}")
+        print(f"==================================================")
+        print(f"⚡ 동일 날짜({date_str})의 기존 원본 데이터(JSON)가 발견되었습니다!")
+        print(f"   -> 외부 API(LLM 및 지도) 호출을 건너뛰어 호출 비용과 응답 시간을 절약합니다.")
+        print(f"   - 원본 데이터: {raw_json_path}")
+        print(f"   - 최종 리포트: {report_md_path}")
+        print(f"\n완료! {report_md_path} 를 확인하세요.")
+        print(f"(※ 캐시를 건너뛰고 API를 새로 호출하려면 '--force' 또는 '--no-cache' 옵션을 사용하세요.)\n")
         return
 
     # 신규 호출 시 필수 키 검증
     check_api_keys()
 
+    mode_label = "복수 지역 추천 모드 (보너스 과제)" if args.multi else "단일 추천 모드"
     print(f"\n==================================================")
-    print(f"  국내 여행 플래너 실행: {date_str}")
+    print(f"  국내 여행 플래너 실행: {date_str} [{mode_label}]")
     print(f"==================================================")
 
     collected_errors = []
@@ -120,7 +126,8 @@ def main():
     # -------------------------------------------------------------
     # [1/3] 1차 추천 생성 (LLM)
     # -------------------------------------------------------------
-    print("\n[1/3] 1차 추천 생성 중(LLM)...")
+    log_suffix = " (복수 지역 확장)..." if args.multi else "..."
+    print(f"\n[1/3] 1차 추천 생성 중(LLM){log_suffix}")
     try:
         first_rec, rec_errors = get_first_recommendation(date_str, multi_cities=args.multi)
         collected_errors.extend(rec_errors)
@@ -139,7 +146,7 @@ def main():
         collected_errors.append({"step": "1st_recommendation", "type": "FATAL", "message": str(e)})
 
     # -------------------------------------------------------------
-    # [2/3] 맛집 검색 (지도/장소 API)
+    # [2/3] 맛집 검색 (지도/장소 API) - 루프 및 결과 구조 설계
     # -------------------------------------------------------------
     print("\n[2/3] 맛집 검색 중(지도/장소 API)...")
     raw_city = first_rec.get("recommended_city", "")
@@ -148,15 +155,25 @@ def main():
         target_cities = [c for c in first_rec.get("recommended_cities", []) if c and c != "추천 실패"]
 
     all_places = []
-    for city in target_cities:
-        places, place_errors = search_restaurants(city, count=5)
-        collected_errors.extend(place_errors)
-        all_places.extend(places)
+    if len(target_cities) > 1:
+        print(f"  [반복 처리 루프] 총 {len(target_cities)}개 추천 지역에 대해 맛집을 순차 검색합니다: {target_cities}")
+        for idx, city in enumerate(target_cities, start=1):
+            places, place_errors = search_restaurants(city, count=5)
+            collected_errors.extend(place_errors)
+            all_places.extend(places)
+            if places:
+                print(f"    - [{idx}/{len(target_cities)}] '{city}' 맛집 {len(places)}곳 검색 완료")
+            else:
+                print(f"    - [{idx}/{len(target_cities)}] '{city}' 맛집 검색 결과 없음 (데이터 없음 처리)")
+    else:
+        for city in target_cities:
+            places, place_errors = search_restaurants(city, count=5)
+            collected_errors.extend(place_errors)
+            all_places.extend(places)
 
     if all_places:
-        print(f"  - 맛집 {len(all_places)}곳 검색 완료")
+        print(f"  - 총 맛집 {len(all_places)}곳 수집 완료")
     else:
-        # 에러 내역에 따른 안내
         recent_err = collected_errors[-1] if collected_errors else {}
         err_msg = recent_err.get("message", "검색 결과 0건")
         print(f"  - 맛집 검색 결과 없음 ({err_msg})")
@@ -195,7 +212,10 @@ def main():
     print(f"완료! 결과물이 성공적으로 저장되었습니다:")
     print(f"  - 원본 JSON: {raw_json_path}")
     print(f"  - 여행 리포트: {report_md_path}")
-    print("=" * 50 + "\n")
+    print("=" * 50)
+    if not args.multi:
+        print(f"💡 [보너스 과제 1] 복수 지역 추천을 실행하려면: python travel_planner.py --date \"{date_str}\" --multi --force")
+    print(f"💡 [보너스 과제 2] 결과 캐싱 효과를 확인하려면: 방금 명령어를 한 번 더 실행해 보세요 (외부 API 호출 건너뜀)\n")
 
 
 if __name__ == "__main__":

@@ -56,6 +56,7 @@ def search_places_kakao(city: str, api_key: str, count: int = 5) -> Tuple[List[D
 
         for doc in documents:
             results.append({
+                "city": city,
                 "name": doc.get("place_name", "").strip(),
                 "address": doc.get("road_address_name") or doc.get("address_name", ""),
                 "category": doc.get("category_name", ""),
@@ -123,6 +124,7 @@ def search_places_naver(city: str, client_id: str, client_secret: str, count: in
         for item in items:
             # Naver mapx, mapy are in KATECH coordinates or integers
             results.append({
+                "city": city,
                 "name": _strip_html_tags(item.get("title", "")),
                 "address": item.get("roadAddress") or item.get("address", ""),
                 "category": item.get("category", ""),

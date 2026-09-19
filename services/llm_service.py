@@ -29,10 +29,10 @@ def _extract_json_from_text(text: str) -> Dict[str, Any]:
 
 def _call_gemini_api(api_key: str, prompt: str, as_json: bool = False) -> str:
     """
-    Google Gemini REST API 호출
+    Google Gemini REST API 호출 (3.6-flash 기본, 일시 오류 시 3.5-flash 자동 폴백)
     """
-    model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    fallback_model = "gemini-3.5-flash"
     headers = {
         "Content-Type": "application/json",
         "x-goog-api-key": api_key.strip()
@@ -47,7 +47,12 @@ def _call_gemini_api(api_key: str, prompt: str, as_json: bool = False) -> str:
             "responseMimeType": "application/json"
         }
 
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{primary_model}:generateContent"
     response = requests.post(url, headers=headers, json=payload, timeout=30)
+    if response.status_code in (500, 503) and primary_model != fallback_model:
+        fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent"
+        response = requests.post(fallback_url, headers=headers, json=payload, timeout=30)
+
     if response.status_code in (401, 403):
         raise PermissionError(f"Gemini API 인증 실패 (HTTP {response.status_code}). API 키를 확인하세요.")
     response.raise_for_status()
@@ -162,6 +167,9 @@ def get_first_recommendation(date_str: str, multi_cities: bool = False) -> Tuple
             if key not in parsed_json:
                 raise KeyError(f"필수 키 '{key}'가 누락되었습니다.")
 
+        if multi_cities and "recommended_cities" not in parsed_json:
+            parsed_json["recommended_cities"] = [parsed_json["recommended_city"]]
+
         return parsed_json, errors
 
     except Exception as first_error:
@@ -172,7 +180,24 @@ def get_first_recommendation(date_str: str, multi_cities: bool = False) -> Tuple
         })
 
         # 재시도 1회 수행
-        retry_prompt = f"""
+        if multi_cities:
+            retry_prompt = f"""
+이전 출력에서 오류 또는 누락이 발생했습니다.
+반드시 마크다운이나 부가 설명 없이 오직 순수한 JSON 문자열만 출력해야 합니다.
+
+여행 날짜: {date_str}
+해당 시기에 추천할 대한민국 국내 여행지 2~3곳을 선정해주세요.
+반드시 아래 JSON 스키마를 만족해야 합니다:
+{{
+  "recommended_cities": ["도시1", "도시2", "도시3"],
+  "recommended_city": "도시1",
+  "weather": "{date_str} 시기의 일반적인 날씨 요약",
+  "events": ["해당 시기 지역 축제/행사 1~3개"],
+  "reason": "해당 도시들을 추천하는 구체적인 이유 (2~4문장)"
+}}
+"""
+        else:
+            retry_prompt = f"""
 이전 출력에서 JSON 파싱 오류가 발생했습니다.
 반드시 마크다운이나 부가 설명 없이 오직 순수한 JSON 문자열만 출력해야 합니다.
 
@@ -186,6 +211,8 @@ def get_first_recommendation(date_str: str, multi_cities: bool = False) -> Tuple
         try:
             raw_response = call_llm(retry_prompt, as_json=True)
             parsed_json = _extract_json_from_text(raw_response)
+            if multi_cities and "recommended_cities" not in parsed_json:
+                parsed_json["recommended_cities"] = [parsed_json.get("recommended_city", "서울")]
             return parsed_json, errors
         except Exception as retry_error:
             errors.append({
@@ -200,6 +227,8 @@ def get_first_recommendation(date_str: str, multi_cities: bool = False) -> Tuple
                 "events": ["행사 정보 없음"],
                 "reason": f"LLM API 호출 또는 파싱에 실패하였습니다 ({str(retry_error)})."
             }
+            if multi_cities:
+                fallback_json["recommended_cities"] = ["추천 실패"]
             return fallback_json, errors
 
 
@@ -232,13 +261,17 @@ def generate_final_report(
 반드시 다음 마크다운 섹션 구조를 포함하여 작성하세요:
 1. # {date_str} 국내 여행 추천 리포트
 2. ## 추천 지역 (지역명 및 한 줄 테마)
+   - 복수 지역인 경우 각 도시별 테마를 함께 명시
 3. ## 추천 이유 (계절적/상황적 매력)
 4. ## 날씨 요약 (기온, 체감 날씨, 추천 복장)
 5. ## 행사/축제 (진행 예정인 축제나 즐길 거리 목록)
 6. ## 맛집 추천:
-   - 맛집 데이터가 있으면 상호명, 카테고리, 주소, 링크(있을 경우)를 마크다운 목록이나 표로 깔끔하게 정리.
+   - 복수 지역인 경우(추천 도시가 여러 개이거나 맛집 데이터에 여러 도시가 포함된 경우):
+     ★ 반드시 각 지역별 소제목(예: ### [도시1] 맛집, ### [도시2] 맛집)을 두어 지역별로 완벽하게 분류 및 정리하세요.
+   - 단일 지역인 경우: 상호명, 카테고리, 주소, 링크(있을 경우)를 마크다운 목록이나 표로 깔끔하게 정리.
    - 맛집 데이터가 0건이거나 비어있으면 반드시 "데이터 없음 (장소 검색 결과 0건 또는 검색 실패)"로 명확히 표기.
 7. ## 1일 일정 제안 (오전 / 점심 및 오후 / 저녁 코스)
+   - 복수 지역인 경우 대표 도시 또는 지역 연계 일정 제안
 8. ## 오류 요약 (errors):
    - 오류가 있으면 발생 단계와 내용을 요약. 오류가 전혀 없으면 "발생한 오류가 없습니다 (정상 처리 완료)"로 표기.
 
@@ -254,10 +287,14 @@ def generate_final_report(
         return report_text.strip()
     except Exception as e:
         # LLM 리포트 생성 실패 시 Fallback 마크다운 리포트 자체 생성
+        city_title = first_recommendation.get("recommended_city")
+        if "recommended_cities" in first_recommendation:
+            city_title = ", ".join(first_recommendation["recommended_cities"])
+
         fallback_md = f"""# {date_str} 국내 여행 추천 리포트
 
 ## 추천 지역
-- {first_recommendation.get('recommended_city', '알 수 없음')}
+- {city_title or '알 수 없음'}
 
 ## 추천 이유
 {first_recommendation.get('reason', '정보 없음')}
@@ -272,14 +309,23 @@ def generate_final_report(
 
         fallback_md += "\n## 맛집 추천\n"
         if places:
+            from collections import defaultdict
+            grouped = defaultdict(list)
             for p in places:
-                fallback_md += f"- **{p.get('name')}** ({p.get('category', '음식점')}): {p.get('address', '')}\n"
+                c = p.get("city") or first_recommendation.get("recommended_city", "기타")
+                grouped[c].append(p)
+
+            for c, c_places in grouped.items():
+                if len(grouped) > 1:
+                    fallback_md += f"\n### {c} 맛집\n"
+                for p in c_places:
+                    fallback_md += f"- **{p.get('name')}** ({p.get('category', '음식점')}): {p.get('address', '')}\n"
         else:
             fallback_md += "- 데이터 없음 (장소 검색 결과 0건)\n"
 
         fallback_md += f"""
 ## 1일 일정 제안
-- 오전: {first_recommendation.get('recommended_city')} 도착 및 주요 명소 산책
+- 오전: {city_title} 도착 및 주요 명소 산책
 - 오후: 현지 대표 명소 탐방 및 카페 방문
 - 저녁: 특산물 식사 및 야경 감상
 

@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-20",
+  "first_recommendation": {
+    "recommended_cities": [
+      "제주",
+      "경주"
+    ],
+    "recommended_city": "제주",
+    "weather": "11월 중하순은 평균 기온 5°C~15°C 안팎으로 맑고 쌀쌀한 전형적인 늦가을 날씨입니다. 아침저녁으로 바람이 차고 일교차가 크므로 두꺼운 코트나 패딩, 레이어드할 수 있는 따뜻한 겉옷과 목도리를 챙기는 것이 좋습니다.",
+    "events": [
+      "제주 휴애리 감귤체험 축제",
+      "경주 동궁과 월지 야간 빛 투어"
+    ],
+    "reason": "11월 20일경은 단풍 시즌 직후로 관광객이 줄어들어 한적하고 고즈넉한 늦가을 운치를 만끽하기 최적의 시기입니다. 제주는 은빛 억새 물결과 제철을 맞은 주황빛 감귤 밭 풍경이 장관을 이루며, 경주는 고요한 사적지와 어우러진 야경이 매력적입니다. 남부 지역의 상대적으로 포근한 기후 덕분에 여유롭게 여정을 즐기실 수 있습니다."
+  },
+  "places": [],
+  "errors": [
+    {
+      "step": "place_search",
+      "type": "KEY_MISSING",
+      "message": "지도/장소 API 키가 .env에 설정되어 있지 않습니다 (KAKAO_REST_API_KEY 또는 NAVER_CLIENT_ID/SECRET 필요)."
+    },
+    {
+      "step": "place_search",
+      "type": "KEY_MISSING",
+      "message": "지도/장소 API 키가 .env에 설정되어 있지 않습니다 (KAKAO_REST_API_KEY 또는 NAVER_CLIENT_ID/SECRET 필요)."
+    }
+  ]
+}
