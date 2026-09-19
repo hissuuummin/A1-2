@@ -31,8 +31,12 @@ def _call_gemini_api(api_key: str, prompt: str, as_json: bool = False) -> str:
     """
     Google Gemini REST API 호출
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key.strip()}"
-    headers = {"Content-Type": "application/json"}
+    model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key.strip()
+    }
     payload: Dict[str, Any] = {
         "contents": [
             {"parts": [{"text": prompt}]}
@@ -139,7 +143,7 @@ def get_first_recommendation(date_str: str, multi_cities: bool = False) -> Tuple
 반드시 아래 JSON 스키마를 만족하는 유효한 JSON 객체 하나만 출력하세요. 다른 안내 문구는 일절 포함하지 마세요.
 
 {{
-  "recommended_city": "추천 도시 이름 (예: 제주, 강릉, 여수 등)",
+  "recommended_city": "해당 계절과 날짜에 최적인 대한민국 도시 이름 1곳 (예: 강릉, 부산, 여수, 경주, 전주, 춘천, 속초, 제주 등 다양하게 고려)",
   "weather": "{date_str} 시기의 일반적인 날씨 요약 (기온, 바람, 옷차림 팁 등)",
   "events": ["해당 시기 지역 행사 또는 축제 후보 1~3개"],
   "reason": "해당 날짜에 이 도시를 추천하는 구체적인 근거 (2~4문장)"
@@ -174,7 +178,7 @@ def get_first_recommendation(date_str: str, multi_cities: bool = False) -> Tuple
 
 여행 날짜: {date_str}
 필수 포함 키:
-- "recommended_city": (문자열, 예: "제주")
+- "recommended_city": (문자열, 대한민국 추천 도시)
 - "weather": (문자열, 날씨 요약)
 - "events": (문자열 배열, 행사 1~3개)
 - "reason": (문자열, 추천 이유 2~4문장)
@@ -191,10 +195,10 @@ def get_first_recommendation(date_str: str, multi_cities: bool = False) -> Tuple
             })
             # 최후의 fallback JSON 반환 (프로그램 중단 방지)
             fallback_json = {
-                "recommended_city": "제주",
+                "recommended_city": "추천 실패",
                 "weather": "날씨 정보 파싱 실패",
                 "events": ["행사 정보 없음"],
-                "reason": "LLM 응답을 파싱하지 못하여 기본 추천 지역으로 대체되었습니다."
+                "reason": f"LLM API 호출 또는 파싱에 실패하였습니다 ({str(retry_error)})."
             }
             return fallback_json, errors
 

@@ -131,10 +131,10 @@ def main():
     except Exception as e:
         print(f"  - [오류] 1차 추천 중 심각한 오류 발생: {str(e)}")
         first_rec = {
-            "recommended_city": "제주",
+            "recommended_city": "추천 실패",
             "weather": "날씨 정보 없음",
             "events": [],
-            "reason": "추천 생성에 실패하여 기본 지역으로 설정되었습니다."
+            "reason": f"추천 생성에 실패하였습니다: {str(e)}"
         }
         collected_errors.append({"step": "1st_recommendation", "type": "FATAL", "message": str(e)})
 
@@ -142,9 +142,10 @@ def main():
     # [2/3] 맛집 검색 (지도/장소 API)
     # -------------------------------------------------------------
     print("\n[2/3] 맛집 검색 중(지도/장소 API)...")
-    target_cities = [first_rec.get("recommended_city", "제주")]
+    raw_city = first_rec.get("recommended_city", "")
+    target_cities = [raw_city] if raw_city and raw_city != "추천 실패" else []
     if args.multi and "recommended_cities" in first_rec:
-        target_cities = first_rec.get("recommended_cities", target_cities)
+        target_cities = [c for c in first_rec.get("recommended_cities", []) if c and c != "추천 실패"]
 
     all_places = []
     for city in target_cities:
